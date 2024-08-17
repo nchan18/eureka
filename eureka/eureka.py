@@ -161,7 +161,7 @@ def main(cfg):
             if "def compute_reward(self)" in task_code_string:
                 task_code_string_iter = task_code_string.replace("def compute_reward(self):", "def compute_reward(self):\n" + reward_signature)
             elif "def compute_reward(self, actions)" in task_code_string:
-                task_code_string_iter = task_code_string.replace(   , "def compute_reward(self, actions):\n" + reward_signature)
+                task_code_string_iter = task_code_string.replace( "def compute_reward(self, actions):"  , "def compute_reward(self, actions):\n" + reward_signature)
             else:
                 raise NotImplementedError
 
