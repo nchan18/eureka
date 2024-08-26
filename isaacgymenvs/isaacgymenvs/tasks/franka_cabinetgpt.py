@@ -312,7 +312,7 @@ class FrankaCabinetGPT(VecTask):
         self.franka_rfinger_rot = torch.zeros_like(self.franka_local_grasp_rot)
 
     def compute_reward(self, actions):
-        self.rew_buf[:], self.rew_dict = compute_reward(self.franka_grasp_pos, self.drawer_grasp_pos, self.cabinet_dof_pos)
+        self.rew_buf[:], self.rew_dict = compute_reward(self.franka_grasp_pos, self.drawer_grasp_pos, self.franka_lfinger_pos, self.franka_rfinger_pos, self.cabinet_dof_pos)
         self.extras['gpt_reward'] = self.rew_buf.mean()
         for rew_state in self.rew_dict: self.extras[rew_state] = self.rew_dict[rew_state].mean()
         self.gt_rew_buf, self.reset_buf[:], self.successes[:], self.consecutive_successes[:] = compute_success(
@@ -529,28 +529,40 @@ import math
 import torch
 from torch import Tensor
 @torch.jit.script
-def compute_reward(franka_grasp_pos: torch.Tensor, drawer_grasp_pos: torch.Tensor, cabinet_dof_pos: torch.Tensor) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
-    # Define the reward components
-    rewards = {}
-    
-    # Temperature parameters for transformations
-    dist_temp: float = 1.0
-    open_temp: float = 1.0
+def compute_reward(
+    franka_grasp_pos: torch.Tensor,
+    drawer_grasp_pos: torch.Tensor,
+    franka_lfinger_pos: torch.Tensor,
+    franka_rfinger_pos: torch.Tensor,
+    cabinet_dof_pos: torch.Tensor,
+) -> Tuple[torch.Tensor, Dict[str, torch.Tensor]]:
+    # Define temperature parameters for reward component scaling
+    temp_distance = 2.0
+    temp_opening = 5.0
 
-    # Distance between the agent's grasp position and drawer's grasp position
-    dist_to_drawer = torch.norm(franka_grasp_pos - drawer_grasp_pos, dim=-1)
-    
-    # We want to minimize this distance, so the reward is negative
-    # Apply transformation to the distance reward component
-    rewards['dist_reward'] = -torch.exp(dist_to_drawer / dist_temp)
-    
-    # Reward for opening the drawer, we want the pos of cabinet's dof to increase
-    drawer_open = torch.clamp(cabinet_dof_pos[:, 3], 0.0, 1.0) 
-    
-    # Apply transformation to the opening reward component
-    rewards['open_reward'] = torch.exp(drawer_open / open_temp)
-    
-    # Compute total reward as sum of individual rewards
-    total_reward = torch.stack(tuple(rewards.values())).sum(0)
-    
-    return total_reward, rewards
+    # Compute the distance between franka's gripper and drawer handle
+    distance_to_handle = torch.norm(franka_grasp_pos - drawer_grasp_pos, dim=-1)
+    distance_reward = torch.exp(-temp_distance * distance_to_handle)
+
+    # Reward based on how much the drawer is opened (we assume dof pos index 3 controls the opening)
+    opening_reward = torch.exp(temp_opening * cabinet_dof_pos[:, 3])
+
+    # Compute the distance between the left and right fingers of the grasping hand
+    finger_distance = torch.norm(franka_lfinger_pos - franka_rfinger_pos, dim=-1)
+    grasp_stability_reward = 1.0 / (1.0 + finger_distance)  # Changed to a bounded form
+
+    # Bonus reward for fully opening the cabinet
+    fully_open_threshold = 1.0  # Assuming fully open corresponds to a certain DOF value
+    completion_reward = torch.where(cabinet_dof_pos[:, 3] >= fully_open_threshold, torch.tensor(1.0, device=franka_grasp_pos.device), torch.tensor(0.0, device=franka_grasp_pos.device))
+
+    # Combine all reward components
+    total_reward = distance_reward + opening_reward + grasp_stability_reward + completion_reward
+
+    reward_components = {
+        "distance_reward": distance_reward,
+        "opening_reward": opening_reward,
+        "grasp_stability_reward": grasp_stability_reward,
+        "completion_reward": completion_reward,
+    }
+
+    return total_reward, reward_components
