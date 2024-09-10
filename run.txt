@@ -1,0 +1,2 @@
+docker run -it -v outputs:/eureka/eureka/outputs --gpus all -e DISPLAY=$DISPLAY -v $HOME/.Xauthority:/root/.Xauthority:rw ghcr.io/nchan18/eureka:2 
+python3 train.py task=FrankaCabinetCPT checkpoint=~/Documents/outputs/eureka/2024-08-18_16-22-34/policy-2024-08-19_01-44-16/runs/FrankaCabinetGPT-2024-08-19_01-44-16/nn/FrankaCabinetGPT.pth headless=False test=true
